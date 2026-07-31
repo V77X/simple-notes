@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Simple Notes</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.png">
+<meta name="theme-color" content="#0a0a12">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0a0a12; color: #e8e8ff;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  header {
+    padding: 16px 20px; font-size: 20px; font-weight: 700;
+    border-bottom: 1px solid #222; display: flex; justify-content: space-between; align-items: center;
+  }
+  #note-list { flex: 1; overflow-y: auto; padding: 12px; }
+  .note-card {
+    background: #161625; border: 1px solid #262638; border-radius: 10px;
+    padding: 14px; margin-bottom: 10px; cursor: pointer;
+  }
+  .note-card h3 { margin: 0 0 6px 0; font-size: 16px; }
+  .note-card p { margin: 0; color: #999; font-size: 13px; white-space: pre-wrap; overflow: hidden; text-overflow: ellipsis; max-height: 3.6em; }
+  .note-card .meta { color: #555; font-size: 11px; margin-top: 8px; }
+  #empty-state { text-align: center; color: #555; margin-top: 60px; }
+  #fab {
+    position: fixed; bottom: 24px; right: 24px; width: 58px; height: 58px; border-radius: 50%;
+    background: linear-gradient(135deg, #00e5ff, #0077ff); color: #001018; border: none;
+    font-size: 28px; box-shadow: 0 4px 16px rgba(0,229,255,0.35); cursor: pointer;
+  }
+  #editor {
+    position: fixed; inset: 0; background: #0a0a12; display: flex; flex-direction: column;
+    transform: translateX(100%); transition: transform 0.2s ease; z-index: 10;
+  }
+  #editor.open { transform: translateX(0); }
+  #editor-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #222; }
+  #editor-header button { background: none; border: none; color: #00e5ff; font-size: 16px; padding: 8px; cursor: pointer; }
+  #editor-header .delete-btn { color: #ff2e6e; }
+  #title-input, #body-input {
+    background: transparent; border: none; color: #e8e8ff; padding: 16px 20px; font-family: inherit;
+    outline: none; resize: none;
+  }
+  #title-input { font-size: 20px; font-weight: 700; }
+  #body-input { flex: 1; font-size: 16px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <span>Simple Notes</span>
+    <span id="count" style="font-size:13px; color:#666; font-weight:400;"></span>
+  </header>
+  <div id="note-list"></div>
+  <button id="fab">+</button>
+</div>
+
+<div id="editor">
+  <div id="editor-header">
+    <button id="back-btn">← Back</button>
+    <button id="delete-btn" class="delete-btn">Delete</button>
+  </div>
+  <input id="title-input" placeholder="Title" />
+  <textarea id="body-input" placeholder="Start writing..."></textarea>
+</div>
+
+<script>
+const STORAGE_KEY = 'simple-notes-data';
+let notes = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+let activeId = null;
+
+const noteList = document.getElementById('note-list');
+const countEl = document.getElementById('count');
+const editor = document.getElementById('editor');
+const titleInput = document.getElementById('title-input');
+const bodyInput = document.getElementById('body-input');
+const fab = document.getElementById('fab');
+const backBtn = document.getElementById('back-btn');
+const deleteBtn = document.getElementById('delete-btn');
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+}
+
+function formatDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · ' +
+         d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+function render() {
+  countEl.textContent = notes.length ? `${notes.length} note${notes.length > 1 ? 's' : ''}` : '';
+  if (!notes.length) {
+    noteList.innerHTML = '<div id="empty-state">No notes yet.<br>Tap + to create one.</div>';
+    return;
+  }
+  const sorted = [...notes].sort((a, b) => b.updatedAt - a.updatedAt);
+  noteList.innerHTML = sorted.map(n => `
+    <div class="note-card" data-id="${n.id}">
+      <h3>${escapeHtml(n.title) || 'Untitled'}</h3>
+      <p>${escapeHtml(n.body)}</p>
+      <div class="meta">${formatDate(n.updatedAt)}</div>
+    </div>
+  `).join('');
+  noteList.querySelectorAll('.note-card').forEach(card => {
+    card.addEventListener('click', () => openEditor(card.dataset.id));
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+function openEditor(id) {
+  activeId = id;
+  const note = id ? notes.find(n => n.id === id) : null;
+  titleInput.value = note ? note.title : '';
+  bodyInput.value = note ? note.body : '';
+  deleteBtn.style.visibility = note ? 'visible' : 'hidden';
+  editor.classList.add('open');
+  setTimeout(() => titleInput.focus(), 200);
+}
+
+function closeEditor() {
+  const title = titleInput.value.trim();
+  const body = bodyInput.value.trim();
+  if (title || body) {
+    if (activeId) {
+      const note = notes.find(n => n.id === activeId);
+      note.title = title; note.body = body; note.updatedAt = Date.now();
+    } else {
+      notes.push({ id: crypto.randomUUID(), title, body, updatedAt: Date.now() });
+    }
+    save();
+  }
+  editor.classList.remove('open');
+  activeId = null;
+  render();
+}
+
+fab.addEventListener('click', () => openEditor(null));
+backBtn.addEventListener('click', closeEditor);
+deleteBtn.addEventListener('click', () => {
+  if (activeId) {
+    notes = notes.filter(n => n.id !== activeId);
+    save();
+  }
+  editor.classList.remove('open');
+  activeId = null;
+  render();
+});
+
+render();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+}
+</script>
+</body>
+</html>
